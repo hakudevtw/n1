@@ -54,7 +54,8 @@ function unpack(n) {
   var d = window.DAYS[n], out = [];
   (d.words || []).forEach(function (w) { w.deep = true; w.day = n; out.push(w); });
   (d.lite || []).forEach(function (a) {
-    out.push({ w: a[0], r: a[1], c: a[2], ex: a[3] || "", note: "", deep: false, day: n });
+    // a[4] = 朝つけた印。完全な解説は無いが、出題頻度は deep と同じにする。
+    out.push({ w: a[0], r: a[1], c: a[2], ex: a[3] || "", note: "", deep: false, mark: !!a[4], day: n });
   });
   return out;
 }
@@ -153,7 +154,7 @@ var sess = { seen: 0, ok: 0, streak: 0, best: 0, miss: {} };
 function sources() {
   var out = [];
   if (deck === "words" || deck === "mixed") {
-    WORDS.forEach(function (w) { out.push({ t: "w", d: w, k: w.w, base: w.deep ? 3 : 1 }); });
+    WORDS.forEach(function (w) { out.push({ t: "w", d: w, k: w.w, base: (w.deep || w.mark) ? 3 : 1 }); });
     TRAPS.forEach(function (t) { out.push({ t: "t", d: t, k: t.o[t.a], base: 3 }); });
   }
   if (deck === "grammar" || deck === "mixed") {
@@ -267,7 +268,7 @@ function step() {
 
   host.innerHTML = '<div class="card">' +
     '<div class="plate-top"><span class="eyebrow">' + head + '</span>' +
-    '<span class="daytag">' + (deck === "grammar" ? "N2 文法" : DAY.label) + '</span></div>' +
+    '<span class="daytag">' + (deck === "grammar" ? "N2 文法" : ((q.word && q.word.day ? q.word.day : TODAYNUM) + "日目")) + '</span></div>' +
     body +
     '<div class="choices" id="ch">' + q.opts.map(function (o, n) {
       return '<button class="choice' + (q.jp ? " jp" : "") + '" data-n="' + n + '">' +
@@ -705,6 +706,13 @@ VIEWS.forEach(function (v) {
 
 /* ---------------- boot ---------------- */
 $("#mark").textContent = "モリタン ドリル";
+(function () {
+  var today = WORDS.filter(function (w) { return w.day === TODAYNUM; }).length;
+  var carry = WORDS.length - today;
+  $("#foot").textContent = DAY.label + " " + DAY.range.split(" ")[0] + " · 出題 " + WORDS.length + "語" +
+    (carry ? "（今日 " + today + " ＋ 前日の持ち越し " + carry + "）" : "") +
+    " — クリアした語は自動的に抜ける";
+})();
 var start;
 try { start = localStorage.getItem("n1app.tab"); } catch (e) {}
 show(VIEWS.some(function (v) { return v[0] === start; }) ? start : "drill");

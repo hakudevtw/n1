@@ -1,5 +1,5 @@
 /* bump CACHE on every deploy so the app updates itself */
-const CACHE = "moritan-v7";
+const CACHE = "moritan-v8";
 const ASSETS = [
   "./", "index.html",
   "css/app.css",
