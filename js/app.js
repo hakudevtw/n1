@@ -638,11 +638,22 @@ function renderShare() {
       '<p class="hint">複製 → 貼進手機的 Claude 或 Gemini。規則已經寫死：<b>你答不出來時它不會直接給答案</b>。</p>' +
       '<textarea id="pbox" readonly></textarea>' +
       '<button class="next ghost" id="copy">プロンプトをコピー</button>' +
+    '</div>' +
+    '<div class="card">' +
+      '<span class="eyebrow">困ったとき</span>' +
+      '<p class="hint">語数が増えないときはキャッシュが古い。下を押すと全部捨てて取り直す。' +
+      '<b>学習記録は消えない</b>（クリア数・ミス回数はそのまま）。</p>' +
+      '<button class="next ghost" id="reset">最新版を取り直す</button>' +
+      '<p class="hint" style="text-align:center">' + BUILD + ' · 出題 ' + WORDS.length + '語 · 卒業 ' + (ALLWORDS.length - WORDS.length) + '語</p>' +
     '</div></div>';
 
   $("#pbox").value = PROMPT;
   wireCopy($("#rep"), buildReport, "レポートをコピー");
   wireCopy($("#copy"), function () { return PROMPT; }, "プロンプトをコピー");
+  $("#reset").onclick = function () {
+    $("#reset").textContent = "取り直しています…";
+    window.moritanReset();
+  };
 }
 
 function wireCopy(btn, getText, label) {
@@ -706,12 +717,15 @@ VIEWS.forEach(function (v) {
 
 /* ---------------- boot ---------------- */
 $("#mark").textContent = "モリタン ドリル";
+var BUILD = "v9";
 (function () {
   var today = WORDS.filter(function (w) { return w.day === TODAYNUM; }).length;
   var carry = WORDS.length - today;
-  $("#foot").textContent = DAY.label + " " + DAY.range.split(" ")[0] + " · 出題 " + WORDS.length + "語" +
-    (carry ? "（今日 " + today + " ＋ 前日の持ち越し " + carry + "）" : "") +
-    " — クリアした語は自動的に抜ける";
+  var retired = ALLWORDS.length - WORDS.length;   // クリアして抜けた語＝消えたのではなく卒業
+  $("#foot").textContent = DAY.label + " " + DAY.range.split(" ")[0] +
+    " · 出題 " + WORDS.length + "語" +
+    (carry ? "（今日 " + today + " ＋ 持ち越し " + carry + "）" : "") +
+    (retired ? " · 卒業 " + retired : "") + " · " + BUILD;
 })();
 var start;
 try { start = localStorage.getItem("n1app.tab"); } catch (e) {}
@@ -722,7 +736,31 @@ window.moritanPeek = function () { return cur ? cur.ans : -1; };  // デバッ�
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", function () {
-    navigator.serviceWorker.register("sw.js").catch(function () {});
+    navigator.serviceWorker.register("sw.js").then(function (reg) {
+      reg.update();
+      // 新しい版が入ったら、次に開いたときに確実に切り替わるよう待たせない
+      reg.addEventListener("updatefound", function () {
+        var nw = reg.installing;
+        if (!nw) return;
+        nw.addEventListener("statechange", function () {
+          if (nw.state === "installed" && navigator.serviceWorker.controller) {
+            nw.postMessage("skip-waiting");
+            var f = $("#foot");
+            if (f) f.textContent = "新しい版があります — 引っぱって再読み込みしてください";
+          }
+        });
+      });
+    }).catch(function () {});
   });
 }
+
+/* 詰まったとき用の非常口。キャッシュを全部捨てて取り直す。 */
+window.moritanReset = function () {
+  return Promise.all([
+    caches.keys().then(function (ks) { return Promise.all(ks.map(function (k) { return caches.delete(k); })); }),
+    navigator.serviceWorker.getRegistrations().then(function (rs) {
+      return Promise.all(rs.map(function (r) { return r.unregister(); }));
+    })
+  ]).then(function () { location.reload(true); });
+};
 })();
