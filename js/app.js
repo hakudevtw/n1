@@ -63,8 +63,13 @@ var GFORMS = GRAM.map(function (g) { return g.f; });
 var GMEANS = GRAM.map(function (g) { return g.cn; });
 
 /* ---------------- question builders ---------------- */
+/* 中文と日本語が同じ綴りになる語（改善→改善、維持→維持…）は
+   「意味→語」にすると答えが問題文に出てしまう。その型だけ外す。 */
+function sameSpelling(w) {
+  return w.c.split(/[、（(]/)[0].trim() === w.w;
+}
 function wordQ(w) {
-  var mode = pick(["audio", "audio", "read", "mean"]);
+  var mode = sameSpelling(w) ? pick(["audio", "audio", "read"]) : pick(["audio", "audio", "read", "mean"]);
   if (mode === "audio") {
     var o = shuffle([w.c].concat(sampleNot(MEANINGS, 3, w.c)));
     return { key: w.w, kind: "w", word: w, head: "聴いて意味を選ぶ", audio: w.w, opts: o, ans: o.indexOf(w.c) };
@@ -109,6 +114,17 @@ function sources() {
     GRAM.forEach(function (g) { out.push({ t: "g", d: g, k: g.f, base: 3 }); });
   }
   return out;
+}
+/* クリア＝2回続けて正解した語。無限に出題されるドリルに終点を作るための線。 */
+function deckKeys() {
+  var seen = {}, out = [];
+  sources().forEach(function (x) { if (!seen[x.k]) { seen[x.k] = 1; out.push(x.k); } });
+  return out;
+}
+function progress() {
+  var keys = deckKeys(), done = 0;
+  keys.forEach(function (k) { if ((ST.run[k] || 0) >= 2) done++; });
+  return { done: done, total: keys.length };
 }
 function refill() {
   var src = sources(), bag = [];
@@ -167,16 +183,23 @@ function renderDrill() {
   });
   paint();
   v.appendChild(seg);
-  var host = el("div"); host.id = "qhost"; host.style.marginTop = "14px"; v.appendChild(host);
+  var tip = el("p", "hint", "クリア＝<b>2回続けて正解</b>した語。残りが減らないうちは同じ語が何度でも戻ってくる。");
+  tip.style.margin = "9px 2px 0";
+  v.appendChild(tip);
+  var host = el("div"); host.id = "qhost"; host.style.marginTop = "12px"; v.appendChild(host);
   step();
 }
 
 function step() {
   cur = nextQ();
   var q = cur, host = $("#qhost");
-  var rate = sess.seen ? Math.round(sess.ok / sess.seen * 100) : 0;
-  $("#rail").style.width = (sess.seen ? Math.max(4, Math.min(100, rate)) : 0) + "%";
-  $("#daytag").textContent = sess.seen ? (sess.ok + "/" + sess.seen + " · " + rate + "%  連続 " + sess.streak) : DAY.range;
+  var pg = progress(), pct = pg.total ? pg.done / pg.total * 100 : 0;
+  var rail = $("#rail");
+  rail.style.width = pct.toFixed(1) + "%";
+  rail.className = pg.done >= pg.total && pg.total ? "done" : "";
+  $("#daytag").textContent = pg.done >= pg.total && pg.total
+    ? "全クリア " + pg.done + "/" + pg.total
+    : "クリア " + pg.done + "/" + pg.total;
 
   var head = q.kind === "g" ? "文法 · " + q.head : "単語 · " + q.head;
   var body =
@@ -207,9 +230,11 @@ function answer(n) {
   ST.seen[q.key] = (ST.seen[q.key] || 0) + 1;
   var d = ST.day[TODAY] || (ST.day[TODAY] = { seen: 0, ok: 0, miss: {} });
   d.seen++;
+  var justCleared = false;
   if (good) {
     d.ok++;
     ST.run[q.key] = (ST.run[q.key] || 0) + 1;
+    if (ST.run[q.key] === 2) justCleared = true;
     sess.ok++; sess.streak++;
     if (sess.streak > sess.best) sess.best = sess.streak;
     if (sess.streak > (ST.best || 0)) { ST.best = sess.streak; }
@@ -251,8 +276,10 @@ function answer(n) {
   }
 
   $("#rev").innerHTML = '<div class="reveal">' +
-    '<div class="verdict ' + (good ? "ok" : "no") + '"><span>' + (good ? "正解" : "不正解") + '</span>' +
-    '<span class="streak">連続 ' + sess.streak + ' · 最高 ' + Math.max(sess.best, ST.best || 0) + '</span></div>' +
+    '<div class="verdict ' + (good ? "ok" : "no") + '"><span>' +
+    (good ? (justCleared ? "正解 — クリア" : "正解") : "不正解") + '</span>' +
+    '<span class="streak">連続 ' + sess.streak + ' · 最高 ' + Math.max(sess.best, ST.best || 0) +
+    (sess.seen ? ' · 正解率 ' + Math.round(sess.ok / sess.seen * 100) + '%' : "") + '</span></div>' +
     rev + '<button class="next" id="nx">つぎへ</button></div>';
 
   if (q.kind !== "g" && !q.audio) say(q.word.w);
