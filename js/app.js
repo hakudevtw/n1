@@ -96,6 +96,7 @@ function gramQ(g) {
 
 /* ---------------- drill engine ---------------- */
 var deck = "words", queue = [], cur = null, recent = [];
+try { var sd = localStorage.getItem("n1app.deck"); if (sd === "words" || sd === "grammar" || sd === "mixed") deck = sd; } catch (e) {}
 var sess = { seen: 0, ok: 0, streak: 0, best: 0, miss: {} };
 
 function sources() {
@@ -147,13 +148,24 @@ function knetHTML(w) {
 
 function renderDrill() {
   var v = $("#view-drill"); v.innerHTML = "";
-  var seg = el("div", "seg");
+  var seg = el("div", "seg"), btns = [];
+  function paint() {
+    btns.forEach(function (x) { x.b.setAttribute("aria-selected", String(x.k === deck)); });
+  }
   [["words", "単語"], ["grammar", "文法"], ["mixed", "全部"]].forEach(function (d) {
     var b = el("button", null, d[1]);
-    b.setAttribute("aria-selected", String(deck === d[0]));
-    b.onclick = function () { deck = d[0]; recent = []; refill(); step(); };
+    btns.push({ b: b, k: d[0] });
+    b.onclick = function () {
+      if (deck === d[0]) return;
+      deck = d[0];
+      try { localStorage.setItem("n1app.deck", deck); } catch (e) {}
+      recent = []; queue = [];
+      paint();
+      refill(); step();
+    };
     seg.appendChild(b);
   });
+  paint();
   v.appendChild(seg);
   var host = el("div"); host.id = "qhost"; host.style.marginTop = "14px"; v.appendChild(host);
   step();
