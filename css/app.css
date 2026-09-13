@@ -183,6 +183,8 @@ ul.miss .n{margin-left:auto;color:var(--no);font-size:13px;font-weight:700;
 /* ---------- reading ---------- */
 .passage{font-size:17px;line-height:2.05;letter-spacing:.01em;margin:0}
 .passage b{font-weight:700;color:var(--accent)}
+.sx{border-radius:2px;transition:background .18s ease}
+.sx.on{background:var(--accent-soft);box-shadow:0 0 0 3px var(--accent-soft)}
 .timer{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .clock{font-family:var(--mincho);font-weight:800;font-size:32px;font-variant-numeric:tabular-nums}
 .tbtn{appearance:none;min-height:46px;padding:0 20px;border:1px solid var(--accent);

@@ -41,14 +41,34 @@ function say(t, rate) {
 var SPK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a9 9 0 0 1 0 14"/></svg>';
 
 /* ---------------- data ---------------- */
-var DAY = window.DAYS[1];
-var TRAPS = window.TRAPS, GRAM = window.GRAMMAR;
+var DAYNUMS = Object.keys(window.DAYS).map(Number).sort(function (a, b) { return a - b; });
+var TODAYNUM = DAYNUMS[DAYNUMS.length - 1];
+var DAY = window.DAYS[TODAYNUM];
+var TRAPS = DAY.traps || window.TRAPS || [];
+var PASSAGES = DAY.read || window.READ_PASSAGES || [];
+var GRAM = window.GRAMMAR;
 /* 深さ二層。deep = 圈起來的＋陷阱組（例文・辨析・漢字ネットワークつき）
    lite = 残り（語・読み・意味だけ）。出題頻度は deep の 1/3 から始まり、
    ミスした瞬間に上がる ＝ 自己申告ではなく実績でふるいにかける。 */
-var DEEP = DAY.words.map(function (w) { w.deep = true; return w; });
-var LITE = (DAY.lite || []).map(function (a) { return { w: a[0], r: a[1], c: a[2], deep: false }; });
-var WORDS = DEEP.concat(LITE);
+function unpack(n) {
+  var d = window.DAYS[n], out = [];
+  (d.words || []).forEach(function (w) { w.deep = true; w.day = n; out.push(w); });
+  (d.lite || []).forEach(function (a) {
+    out.push({ w: a[0], r: a[1], c: a[2], ex: a[3] || "", note: "", deep: false, day: n });
+  });
+  return out;
+}
+var ALLWORDS = [];
+DAYNUMS.forEach(function (n) { ALLWORDS = ALLWORDS.concat(unpack(n)); });
+
+/* 過去の日は「まだクリアしていない語」だけが今日のデッキに残る。
+   クリア済みの語は退場し、つまずいた語だけがずっと付いてくる。
+   全部は「漢字」タブと日付切り替えでいつでも見返せる。 */
+function carried(w) {
+  if (w.day === TODAYNUM) return true;
+  return (ST.run[w.w] || 0) < 2 || (ST.miss[w.w] || 0) > 0;
+}
+var WORDS = ALLWORDS.filter(carried);
 var MEANINGS = WORDS.map(function (w) { return w.c; });
 var READINGS = WORDS.map(function (w) { return w.r; });
 var SURFACES = WORDS.map(function (w) { return w.w; });
@@ -58,6 +78,22 @@ var HOMO = {};
 WORDS.forEach(function (w) { (HOMO[w.r] = HOMO[w.r] || []).push(w.w); });
 function homophones(w) {
   return (HOMO[w.r] || []).filter(function (x) { return x !== w.w; });
+}
+/* 誤答は「同音」→「同じ漢字で始まる」→「同じ読みの頭」→ 残り、の順で選ぶ。
+   でたらめな誤答だと消去法で当たってしまい、訓練にならない。 */
+function distractors(w, n) {
+  var out = [], seen = {};
+  seen[w.w] = 1;
+  function take(list) {
+    shuffle(list).forEach(function (x) {
+      if (!seen[x] && out.length < n) { seen[x] = 1; out.push(x); }
+    });
+  }
+  take(homophones(w));
+  take(WORDS.filter(function (x) { return x.w[0] === w.w[0]; }).map(function (x) { return x.w; }));
+  take(WORDS.filter(function (x) { return x.r[0] === w.r[0]; }).map(function (x) { return x.w; }));
+  take(SURFACES);
+  return out;
 }
 var GFORMS = GRAM.map(function (g) { return g.f; });
 var GMEANS = GRAM.map(function (g) { return g.cn; });
@@ -69,7 +105,17 @@ function sameSpelling(w) {
   return w.c.split(/[、（(]/)[0].trim() === w.w;
 }
 function wordQ(w) {
-  var mode = sameSpelling(w) ? pick(["audio", "audio", "read"]) : pick(["audio", "audio", "read", "mean"]);
+  var bag = sameSpelling(w) ? ["audio", "audio", "read"] : ["audio", "audio", "read", "mean"];
+  if (w.ex && w.ex.indexOf("<b>") >= 0) bag = bag.concat(["cloze", "cloze", "cloze"]);
+  var mode = pick(bag);
+  if (mode === "cloze") {
+    var o0 = shuffle([w.w].concat(distractors(w, 3)));
+    return {
+      key: w.w, kind: "w", word: w, head: "文に合う語を選ぶ",
+      sent: w.ex.replace(/<b>[\s\S]*?<\/b>/, "＿＿").replace(/<\/?b>/g, ""),
+      opts: o0, ans: o0.indexOf(w.w), jp: true
+    };
+  }
   if (mode === "audio") {
     var o = shuffle([w.c].concat(sampleNot(MEANINGS, 3, w.c)));
     return { key: w.w, kind: "w", word: w, head: "聴いて意味を選ぶ", audio: w.w, opts: o, ans: o.indexOf(w.c) };
@@ -126,14 +172,21 @@ function progress() {
   keys.forEach(function (k) { if ((ST.run[k] || 0) >= 2) done++; });
   return { done: done, total: keys.length };
 }
+/* まだクリアしていない語を優先する。クリア済みは背景でたまに戻るだけ。
+   固定の重みで引くと、とっくに覚えた語が延々と出てきて終わりが来ない。 */
 function refill() {
-  var src = sources(), bag = [];
-  src.forEach(function (s) {
-    var m = ST.miss[s.k] || 0;                 // 長期：錯越多次越常出現
-    var sm = sess.miss[s.k] || 0;              // 本回合錯的，立刻加重
-    var n = (s.base || 1) + Math.min(m, 3) * 2 + sm * 3;
-    for (var i = 0; i < n; i++) bag.push(s);
+  var src = sources(), bag = [], done = [];
+  src.forEach(function (x) {
+    if ((ST.run[x.k] || 0) >= 2) { done.push(x); return; }
+    var m = ST.miss[x.k] || 0, sm = sess.miss[x.k] || 0;
+    var n = (x.base === 3 ? 2 : 1) + Math.min(m, 3) + sm * 2;
+    for (var i = 0; i < n; i++) bag.push(x);
   });
+  if (done.length) {                                   // 維持のため 15% ほど混ぜる
+    shuffle(done).slice(0, Math.max(1, Math.round(bag.length * 0.15)))
+      .forEach(function (x) { bag.push(x); });
+  }
+  if (!bag.length) bag = src.slice();                  // 全クリア後は自由復習
   queue = shuffle(bag);
 }
 function nextQ() {
@@ -190,16 +243,19 @@ function renderDrill() {
   step();
 }
 
-function step() {
-  cur = nextQ();
-  var q = cur, host = $("#qhost");
+function paintProgress() {
   var pg = progress(), pct = pg.total ? pg.done / pg.total * 100 : 0;
   var rail = $("#rail");
   rail.style.width = pct.toFixed(1) + "%";
   rail.className = pg.done >= pg.total && pg.total ? "done" : "";
-  $("#daytag").textContent = pg.done >= pg.total && pg.total
-    ? "全クリア " + pg.done + "/" + pg.total
-    : "クリア " + pg.done + "/" + pg.total;
+  $("#daytag").textContent = (pg.done >= pg.total && pg.total ? "全クリア " : "クリア ") +
+    pg.done + "/" + pg.total;
+  return pg;
+}
+function step() {
+  cur = nextQ();
+  var q = cur, host = $("#qhost");
+  paintProgress();
 
   var head = q.kind === "g" ? "文法 · " + q.head : "単語 · " + q.head;
   var body =
@@ -235,6 +291,13 @@ function answer(n) {
     d.ok++;
     ST.run[q.key] = (ST.run[q.key] || 0) + 1;
     if (ST.run[q.key] === 2) justCleared = true;
+    /* 1回目に正解したら、その語を数問先に差し込む。
+       次の周回まで待たせると、いつまでもクリアにならず進捗が動かない。
+       7問以上先にしているのは直近6問の重複よけをすり抜けさせないため。 */
+    if (ST.run[q.key] === 1) {
+      var back = { t: q.kind === "g" ? "g" : "w", d: q.kind === "g" ? q.gram : q.word, k: q.key, base: 1 };
+      queue.splice(Math.min(queue.length, 7 + (Math.random() * 5 | 0)), 0, back);
+    }
     sess.ok++; sess.streak++;
     if (sess.streak > sess.best) sess.best = sess.streak;
     if (sess.streak > (ST.best || 0)) { ST.best = sess.streak; }
@@ -248,6 +311,7 @@ function answer(n) {
     queue.unshift({ t: q.kind === "g" ? "g" : "w", d: q.kind === "g" ? q.gram : q.word, k: q.key });
   }
   save();
+  var pg = paintProgress();
 
   Array.prototype.forEach.call($("#ch").children, function (b, i) {
     b.disabled = true;
@@ -278,6 +342,7 @@ function answer(n) {
   $("#rev").innerHTML = '<div class="reveal">' +
     '<div class="verdict ' + (good ? "ok" : "no") + '"><span>' +
     (good ? (justCleared ? "正解 — クリア" : "正解") : "不正解") + '</span>' +
+    '<span class="streak" style="margin-left:12px;color:var(--accent)">残り ' + (pg.total - pg.done) + '</span>' +
     '<span class="streak">連続 ' + sess.streak + ' · 最高 ' + Math.max(sess.best, ST.best || 0) +
     (sess.seen ? ' · 正解率 ' + Math.round(sess.ok / sess.seen * 100) + '%' : "") + '</span></div>' +
     rev + '<button class="next" id="nx">つぎへ</button></div>';
@@ -352,32 +417,84 @@ function renderGrammar() {
 }
 
 /* ---------------- 読解 view ---------------- */
-var t0 = null, tick = null, activeP = 0;
+var t0 = null, tick = null, activeP = 0, reading = null;
 function fmt(s) { return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
+function sentences(html) {
+  return html.split("。").map(function (x) { return x.trim(); })
+             .filter(function (x) { return x; }).map(function (x) { return x + "。"; });
+}
+function stopReading() {
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  reading = null;
+  Array.prototype.forEach.call(document.querySelectorAll(".sx.on"), function (e) { e.className = "sx"; });
+  Array.prototype.forEach.call(document.querySelectorAll("[data-play]"), function (b) {
+    b.textContent = b.dataset.label;
+  });
+}
+/* 一文ずつ読み上げて、いま読んでいる文を光らせる。
+   自分で音読したあとに流して、読み違えていた場所を突き合わせるためのもの。 */
+function playPassage(card, idx, rate, btn) {
+  var was = reading;
+  stopReading();
+  if (was && was.i === idx && was.rate === rate) return;
+  var spans = card.querySelectorAll(".sx");
+  var sents = Array.prototype.map.call(spans, function (e) { return e.textContent; });
+  reading = { i: idx, rate: rate };
+  btn.textContent = "停止";
+  var n = 0;
+  function next() {
+    if (!reading || n >= sents.length) { stopReading(); return; }
+    Array.prototype.forEach.call(spans, function (e) { e.className = "sx"; });
+    if (spans[n]) { spans[n].className = "sx on"; spans[n].scrollIntoView({ block: "center", behavior: "smooth" }); }
+    var u = new SpeechSynthesisUtterance(sents[n]);
+    u.lang = "ja-JP"; u.rate = rate;
+    if (jaVoice) u.voice = jaVoice;
+    u.onend = function () { n++; next(); };
+    u.onerror = function () { stopReading(); };
+    speechSynthesis.speak(u);
+  }
+  next();
+}
 function renderRead() {
   var v = $("#view-read");
   v.innerHTML = '<div class="stack"><div class="card">' +
     '<div class="timer"><span class="clock" id="clock">0:00</span>' +
     '<button class="tbtn" id="tbtn">スタート</button></div>' +
-    '<p class="hint">目標各 <b>60 秒</b>。<b>假名不要在心裡念出來</b>——靠漢字直讀，那是你最快的模式。停錶後會記住你的最佳秒數。</p>' +
-    '</div>' + window.READ_PASSAGES.map(function (p, i) {
+    '<p class="hint">まず<b>自分で音読せず黙読</b>して計る。目標各 <b>60 秒</b>、假名は心の中でも音にしない。' +
+    'そのあと <b>読み上げ</b> を流すと、いま読んでいる文が光る ―― 自分の読みとずれていた所がそこで分かる。</p>' +
+    '</div>' + PASSAGES.map(function (p, i) {
       var b = ST.times[i];
-      return '<div class="card"><div class="plate-top"><span class="eyebrow">' + p.t + '</span>' +
-        '<span class="best">' + (b ? "最佳 " + fmt(b) : "未計測") + '</span></div>' +
-        '<p class="passage">' + p.html + '</p>' +
-        '<button class="next ghost" data-p="' + i + '">この文を計る</button></div>';
+      return '<div class="card" data-card="' + i + '">' +
+        '<div class="plate-top"><span class="eyebrow">' + p.t + '</span>' +
+        '<span class="best">' + (b ? "最速 " + fmt(b) : "未計測") + '</span></div>' +
+        '<p class="passage">' + sentences(p.html).map(function (x) {
+          return '<span class="sx">' + x + '</span>';
+        }).join("") + '</p>' +
+        '<div class="seg" style="margin-top:2px">' +
+          '<button data-play="' + i + '" data-rate="0.95" data-label="読み上げ">読み上げ</button>' +
+          '<button data-play="' + i + '" data-rate="0.7" data-label="ゆっくり">ゆっくり</button>' +
+          '<button data-time="' + i + '">この文を計る</button>' +
+        '</div></div>';
     }).join("") + '</div>';
-  $("#tbtn").onclick = toggleTimer;
-  Array.prototype.forEach.call(v.querySelectorAll("[data-p]"), function (b) {
-    b.onclick = function () { activeP = +b.dataset.p; if (!tick) toggleTimer(); window.scrollTo(0, 0); };
+
+  Array.prototype.forEach.call(v.querySelectorAll("[data-play]"), function (b) {
+    b.onclick = function () {
+      var i = +b.dataset.play;
+      playPassage(v.querySelector('[data-card="' + i + '"]'), i, +b.dataset.rate, b);
+    };
   });
+  Array.prototype.forEach.call(v.querySelectorAll("[data-time]"), function (b) {
+    b.onclick = function () { activeP = +b.dataset.time; if (!tick) toggleTimer(); window.scrollTo(0, 0); };
+  });
+  $("#tbtn").onclick = toggleTimer;
 }
 function toggleTimer() {
   var btn = $("#tbtn");
   if (tick) {
     clearInterval(tick); tick = null; btn.textContent = "スタート";
     var s = Math.floor((Date.now() - t0) / 1000);
-    if (!ST.times[activeP] || s < ST.times[activeP]) { ST.times[activeP] = s; save(); renderRead(); $("#clock").textContent = fmt(s); }
+    if (!ST.times[activeP] || s < ST.times[activeP]) { ST.times[activeP] = s; save(); renderRead(); }
+    $("#clock").textContent = fmt(s);
     return;
   }
   t0 = Date.now(); btn.textContent = "ストップ";
@@ -473,7 +590,7 @@ function buildReport() {
   if (times.length) {
     out.push("■ 計時読解");
     times.forEach(function (i) {
-      var p = window.READ_PASSAGES[i];
+      var p = PASSAGES[i];
       if (p) out.push("- " + p.t + " 最速 " + fmt(ST.times[i]) + "（目標 " + fmt(p.sec) + "）");
     });
     out.push("");
@@ -566,6 +683,7 @@ var VIEWS = [
   ["prompt", "送", "共有", renderShare]
 ];
 function show(id) {
+  stopReading();
   VIEWS.forEach(function (v) {
     var on = v[0] === id;
     $("#view-" + v[0]).hidden = !on;
@@ -592,6 +710,7 @@ try { start = localStorage.getItem("n1app.tab"); } catch (e) {}
 show(VIEWS.some(function (v) { return v[0] === start; }) ? start : "drill");
 
 window.moritanReport = buildReport;  // デバッグ用：コンソールから今日のレポートを覗ける
+window.moritanPeek = function () { return cur ? cur.ans : -1; };  // デバッグ用：正解の位置
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", function () {
