@@ -42,10 +42,23 @@ var SPK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-wid
 
 /* ---------------- data ---------------- */
 var DAY = window.DAYS[1];
-var WORDS = DAY.words, TRAPS = window.TRAPS, GRAM = window.GRAMMAR;
+var TRAPS = window.TRAPS, GRAM = window.GRAMMAR;
+/* 深さ二層。deep = 圈起來的＋陷阱組（例文・辨析・漢字ネットワークつき）
+   lite = 残り（語・読み・意味だけ）。出題頻度は deep の 1/3 から始まり、
+   ミスした瞬間に上がる ＝ 自己申告ではなく実績でふるいにかける。 */
+var DEEP = DAY.words.map(function (w) { w.deep = true; return w; });
+var LITE = (DAY.lite || []).map(function (a) { return { w: a[0], r: a[1], c: a[2], deep: false }; });
+var WORDS = DEEP.concat(LITE);
 var MEANINGS = WORDS.map(function (w) { return w.c; });
 var READINGS = WORDS.map(function (w) { return w.r; });
 var SURFACES = WORDS.map(function (w) { return w.w; });
+
+/* 同音語は自動で拾う（確立/確率、意向/移行、企画/規格 …）。手で書かなくていい。 */
+var HOMO = {};
+WORDS.forEach(function (w) { (HOMO[w.r] = HOMO[w.r] || []).push(w.w); });
+function homophones(w) {
+  return (HOMO[w.r] || []).filter(function (x) { return x !== w.w; });
+}
 var GFORMS = GRAM.map(function (g) { return g.f; });
 var GMEANS = GRAM.map(function (g) { return g.cn; });
 
@@ -88,11 +101,11 @@ var sess = { seen: 0, ok: 0, streak: 0, best: 0, miss: {} };
 function sources() {
   var out = [];
   if (deck === "words" || deck === "mixed") {
-    WORDS.forEach(function (w) { out.push({ t: "w", d: w, k: w.w }); });
-    TRAPS.forEach(function (t) { out.push({ t: "t", d: t, k: t.o[t.a] }); });
+    WORDS.forEach(function (w) { out.push({ t: "w", d: w, k: w.w, base: w.deep ? 3 : 1 }); });
+    TRAPS.forEach(function (t) { out.push({ t: "t", d: t, k: t.o[t.a], base: 3 }); });
   }
   if (deck === "grammar" || deck === "mixed") {
-    GRAM.forEach(function (g) { out.push({ t: "g", d: g, k: g.f }); });
+    GRAM.forEach(function (g) { out.push({ t: "g", d: g, k: g.f, base: 3 }); });
   }
   return out;
 }
@@ -101,7 +114,7 @@ function refill() {
   src.forEach(function (s) {
     var m = ST.miss[s.k] || 0;                 // 長期：錯越多次越常出現
     var sm = sess.miss[s.k] || 0;              // 本回合錯的，立刻加重
-    var n = 1 + Math.min(m, 3) + sm * 2;
+    var n = (s.base || 1) + Math.min(m, 3) * 2 + sm * 3;
     for (var i = 0; i < n; i++) bag.push(s);
   });
   queue = shuffle(bag);
@@ -215,9 +228,10 @@ function answer(n) {
       (q.why ? '<p class="note">' + q.why + '</p>' : "") +
       (g.trap ? '<p class="note">' + g.trap + '</p>' : "");
   } else {
-    var w = q.word;
+    var w = q.word, ho = homophones(w);
     rev = '<div class="rd"><span class="k">' + w.w + '</span><span class="y">' + w.r + '</span>' +
       '<span class="c">' + w.c + '</span></div>' +
+      (ho.length ? '<p class="note">⚠️ 同音：<b>' + ho.join("・") + '</b> — 読みだけでは決まらない。文脈で選ぶ。</p>' : "") +
       (w.ex ? '<p class="ex">' + w.ex + '</p>' : "") +
       (q.why ? '<p class="note">' + q.why + '</p>' : "") +
       (w.note ? '<p class="note">' + w.note + '</p>' : "") +
@@ -345,7 +359,7 @@ function weakness(key) {
 }
 function lookup(key) {
   var w = WORDS.filter(function (x) { return x.w === key; })[0];
-  if (w) return { kind: "w", label: w.w, sub: w.r, cn: w.c };
+  if (w) return { kind: "w", label: w.w, sub: w.r, cn: w.c, deep: w.deep };
   var g = GRAM.filter(function (x) { return x.f === key; })[0];
   if (g) return { kind: "g", label: g.f, sub: g.y, cn: g.cn };
   return { kind: "w", label: key, sub: "", cn: "" };
@@ -358,7 +372,7 @@ function weakList() {
   return Object.keys(keys).map(function (k) {
     var info = lookup(k);
     return {
-      key: k, kind: info.kind, label: info.label, sub: info.sub, cn: info.cn,
+      key: k, kind: info.kind, label: info.label, sub: info.sub, cn: info.cn, deep: info.deep !== false,
       m: ST.miss[k] || 0, s: ST.seen[k] || 0, run: ST.run[k] || 0,
       todayMiss: today[k] || 0, last: ST.lastMiss[k] || "",
       score: weakness(k)
@@ -403,6 +417,13 @@ function buildReport() {
   sec("要注意 — 文法", hg);
   sec("あやしい — 単語", ww);
   sec("あやしい — 文法", wg);
+  var promo = t.all.filter(function (x) { return !x.deep && x.m >= 2; });
+  if (promo.length) {
+    out.push("■ 昇格候補 — 「知ってるつもりだった」語（" + promo.length + "）");
+    out.push("  ※圈のときは自分で分かると思っていたが、音から引けなかったもの。");
+    promo.slice(0, 20).forEach(function (x) { out.push(line(x)); });
+    out.push("");
+  }
   sec("今日つまずいた（まだ回数は少ない）", t.cool);
   if (t.back.length) {
     out.push("■ 回復した（もう出題頻度は下げてある）");
@@ -424,7 +445,8 @@ function buildReport() {
   }
   out.push("――――――");
   out.push("請據此更新 leeches.md（錯 3 次以上的）與 mistakes.md（文法），");
-  out.push("並在明天的教材裡把「要注意」那批混進例句和陷阱句加重。");
+  out.push("「昇格候補」的請在明天的教材補上完整精讀（例句・辨析・漢字網路），");
+  out.push("並把「要注意」那批混進明天的例句和陷阱句加重。");
   return out.join("\n");
 }
 
