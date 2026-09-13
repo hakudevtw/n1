@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>モリタン ドリル</title>
+<meta name="description" content="N1 単語・N2 文法の取り出し練習。通勤中に片手で。">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#E9EBE6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#11161B" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="モリタン">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-32.png" sizes="32x32">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@600;800&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="plate-top">
+      <span class="mark" id="mark">モリタン ドリル</span>
+      <span class="daytag" id="daytag">1〜100 / 4045</span>
+    </div>
+    <div class="rail"><i id="rail"></i></div>
+  </header>
+
+  <main id="view-drill"></main>
+  <main id="view-kanji" hidden></main>
+  <main id="view-grammar" hidden></main>
+  <main id="view-read" hidden></main>
+  <main id="view-prompt" hidden></main>
+
+  <footer>1日目 · 1〜100 / 4045 — 答錯的會自動變常出現</footer>
+</div>
+<nav></nav>
+
+<script src="js/data/words.js"></script>
+<script src="js/data/grammar.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
