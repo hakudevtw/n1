@@ -15,8 +15,10 @@ var sampleNot = function (pool, n, not) {
 
 /* ---------------- store ---------------- */
 var KEY = "n1app.v1";
-var ST = { miss: {}, seen: {}, best: 0, times: {}, plays: 0 };
+var ST = { miss: {}, seen: {}, run: {}, lastMiss: {}, day: {}, best: 0, times: {}, plays: 0 };
+var TODAY = (function () { var d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); })();
 try { var raw = localStorage.getItem(KEY); if (raw) ST = Object.assign(ST, JSON.parse(raw)); } catch (e) {}
+["miss","seen","run","lastMiss","day","times"].forEach(function (k) { if (!ST[k]) ST[k] = {}; });
 var save = function () { try { localStorage.setItem(KEY, JSON.stringify(ST)); } catch (e) {} };
 
 /* ---------------- speech ---------------- */
@@ -178,12 +180,19 @@ function answer(n) {
   var q = cur, good = n === q.ans;
   sess.seen++;
   ST.seen[q.key] = (ST.seen[q.key] || 0) + 1;
+  var d = ST.day[TODAY] || (ST.day[TODAY] = { seen: 0, ok: 0, miss: {} });
+  d.seen++;
   if (good) {
+    d.ok++;
+    ST.run[q.key] = (ST.run[q.key] || 0) + 1;
     sess.ok++; sess.streak++;
     if (sess.streak > sess.best) sess.best = sess.streak;
     if (sess.streak > (ST.best || 0)) { ST.best = sess.streak; }
   } else {
     sess.streak = 0;
+    ST.run[q.key] = 0;
+    ST.lastMiss[q.key] = TODAY;
+    d.miss[q.key] = (d.miss[q.key] || 0) + 1;
     sess.miss[q.key] = (sess.miss[q.key] || 0) + 1;
     ST.miss[q.key] = (ST.miss[q.key] || 0) + 1;
     queue.unshift({ t: q.kind === "g" ? "g" : "w", d: q.kind === "g" ? q.gram : q.word, k: q.key });
@@ -324,7 +333,158 @@ function toggleTimer() {
   }, 200);
 }
 
-/* ---------------- 会話 view ---------------- */
+/* ---------------- 共有 view : 今日のレポート ＋ 会話プロンプト ---------------- */
+/* 「不熟」の定義
+   score = ミス回数×2 + ミス率×4 − 直近の連続正解×1.2
+   絶対量・比率・回復ぶんの三つを同時に見る。回復した語は自動的に落ちる。 */
+function weakness(key) {
+  var m = ST.miss[key] || 0;
+  if (!m) return 0;
+  var s = Math.max(ST.seen[key] || 0, 1), run = ST.run[key] || 0;
+  return m * 2 + (m / s) * 4 - Math.min(run, 4) * 1.2;
+}
+function lookup(key) {
+  var w = WORDS.filter(function (x) { return x.w === key; })[0];
+  if (w) return { kind: "w", label: w.w, sub: w.r, cn: w.c };
+  var g = GRAM.filter(function (x) { return x.f === key; })[0];
+  if (g) return { kind: "g", label: g.f, sub: g.y, cn: g.cn };
+  return { kind: "w", label: key, sub: "", cn: "" };
+}
+function weakList() {
+  var keys = {};
+  Object.keys(ST.miss).forEach(function (k) { if (ST.miss[k]) keys[k] = 1; });
+  var today = (ST.day[TODAY] && ST.day[TODAY].miss) || {};
+  Object.keys(today).forEach(function (k) { keys[k] = 1; });
+  return Object.keys(keys).map(function (k) {
+    var info = lookup(k);
+    return {
+      key: k, kind: info.kind, label: info.label, sub: info.sub, cn: info.cn,
+      m: ST.miss[k] || 0, s: ST.seen[k] || 0, run: ST.run[k] || 0,
+      todayMiss: today[k] || 0, last: ST.lastMiss[k] || "",
+      score: weakness(k)
+    };
+  }).sort(function (a, b) { return b.score - a.score; });
+}
+function tiers() {
+  var all = weakList();
+  var hot = all.filter(function (x) { return x.score >= 5; });
+  var warm = all.filter(function (x) { return x.score >= 2 && x.score < 5; });
+  var cool = all.filter(function (x) { return x.score < 2 && x.todayMiss > 0; });
+  var back = all.filter(function (x) { return x.score < 2 && x.todayMiss === 0 && x.run >= 3; });
+  return { all: all, hot: hot, warm: warm, cool: cool, back: back };
+}
+
+function line(x) {
+  var s = "- " + x.label + (x.sub ? "（" + x.sub + "）" : "") + (x.cn ? " " + x.cn : "");
+  s += " … " + x.s + "回中" + x.m + "回ミス";
+  if (x.run) s += "／直近" + x.run + "連続正解";
+  return s;
+}
+function buildReport() {
+  var t = tiers(), d = ST.day[TODAY] || { seen: 0, ok: 0, miss: {} };
+  var rate = d.seen ? Math.round(d.ok / d.seen * 100) : 0;
+  var out = [];
+  out.push("【モリタン ドリル " + TODAY + "】" + DAY.label + " " + DAY.range);
+  out.push("今日 " + d.seen + "問 / 正解 " + d.ok + "（" + rate + "%）｜累計ミス語 " + t.all.length + " 件");
+  out.push("");
+
+  function sec(title, arr) {
+    if (!arr.length) return;
+    out.push("■ " + title + "（" + arr.length + "）");
+    arr.slice(0, 25).forEach(function (x) { out.push(line(x)); });
+    if (arr.length > 25) out.push("…ほか " + (arr.length - 25) + " 件");
+    out.push("");
+  }
+  var hw = t.hot.filter(function (x) { return x.kind === "w"; });
+  var hg = t.hot.filter(function (x) { return x.kind === "g"; });
+  var ww = t.warm.filter(function (x) { return x.kind === "w"; });
+  var wg = t.warm.filter(function (x) { return x.kind === "g"; });
+  sec("要注意 — 単語", hw);
+  sec("要注意 — 文法", hg);
+  sec("あやしい — 単語", ww);
+  sec("あやしい — 文法", wg);
+  sec("今日つまずいた（まだ回数は少ない）", t.cool);
+  if (t.back.length) {
+    out.push("■ 回復した（もう出題頻度は下げてある）");
+    out.push(t.back.slice(0, 20).map(function (x) { return x.label; }).join("・"));
+    out.push("");
+  }
+  var times = Object.keys(ST.times);
+  if (times.length) {
+    out.push("■ 計時読解");
+    times.forEach(function (i) {
+      var p = window.READ_PASSAGES[i];
+      if (p) out.push("- " + p.t + " 最速 " + fmt(ST.times[i]) + "（目標 " + fmt(p.sec) + "）");
+    });
+    out.push("");
+  }
+  if (!t.hot.length && !t.warm.length && !t.cool.length) {
+    out.push("■ 今日は引っかかった語なし。");
+    out.push("");
+  }
+  out.push("――――――");
+  out.push("請據此更新 leeches.md（錯 3 次以上的）與 mistakes.md（文法），");
+  out.push("並在明天的教材裡把「要注意」那批混進例句和陷阱句加重。");
+  return out.join("\n");
+}
+
+function renderShare() {
+  var t = tiers(), d = ST.day[TODAY] || { seen: 0, ok: 0 };
+  var rate = d.seen ? Math.round(d.ok / d.seen * 100) : 0;
+  var v = $("#view-prompt");
+  v.innerHTML = '<div class="stack">' +
+    '<div class="card">' +
+      '<span class="eyebrow">寝る前に一回</span><h2>今日のレポート</h2>' +
+      '<div class="score">' +
+        '<div><div class="n">' + d.seen + '</div><div class="l">今日の問題</div></div>' +
+        '<div><div class="n">' + rate + '<small>%</small></div><div class="l">正解率</div></div>' +
+        '<div><div class="n">' + (t.hot.length + t.warm.length) + '</div><div class="l">不熟</div></div>' +
+      '</div>' +
+      (t.hot.length || t.warm.length || t.cool.length
+        ? '<ul class="miss">' + t.hot.concat(t.warm).slice(0, 8).map(function (x) {
+            return '<li><span class="k">' + x.label + '</span>' +
+              (x.sub ? '<span class="y">' + x.sub + '</span>' : "") +
+              (x.cn ? '<span class="c">' + x.cn + '</span>' : "") +
+              '<span class="n">' + x.m + '/' + x.s + '</span></li>';
+          }).join("") + '</ul>' +
+          ((t.hot.length + t.warm.length) > 8
+            ? '<p class="hint">ほか ' + (t.hot.length + t.warm.length - 8) + ' 件。全部レポートに入る。</p>' : "")
+        : '<p class="hint">まだ引っかかった語がない。ドリルを回してから来て。</p>') +
+      '<button class="next" id="rep">レポートをコピー</button>' +
+      '<p class="hint"><b>不熟の定義</b>：ミス回数×2 ＋ ミス率×4 − 直近の連続正解×1.2。' +
+      '回數多、比例高、而且最近沒救回來的才算。貼給 Claude 就會進 leeches.md。</p>' +
+    '</div>' +
+    '<div class="card">' +
+      '<span class="eyebrow">帰りの電車で</span><h2>会話プロンプト</h2>' +
+      '<p class="hint">複製 → 貼進手機的 Claude 或 Gemini。規則已經寫死：<b>你答不出來時它不會直接給答案</b>。</p>' +
+      '<textarea id="pbox" readonly></textarea>' +
+      '<button class="next ghost" id="copy">プロンプトをコピー</button>' +
+    '</div></div>';
+
+  $("#pbox").value = PROMPT;
+  wireCopy($("#rep"), buildReport, "レポートをコピー");
+  wireCopy($("#copy"), function () { return PROMPT; }, "プロンプトをコピー");
+}
+
+function wireCopy(btn, getText, label) {
+  if (!btn) return;
+  btn.onclick = function () {
+    var text = getText();
+    var done = function () { btn.textContent = "コピーしました"; setTimeout(function () { btn.textContent = label; }, 2200); };
+    var fallback = function () {
+      var ta = document.createElement("textarea");
+      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); done(); }
+      catch (e) { btn.textContent = "コピーできず — 長押しで選択して"; }
+      document.body.removeChild(ta);
+    };
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(done, fallback);
+    } else fallback();
+  };
+}
+
 var PROMPT = "あなたは私のN1単語トレーナーです。全部日本語で話してください。\n\n" +
 "【今日の語】" + WORDS.map(function (w) { return w.w; }).join(" ") + "\n\n" +
 "【ルール】\n" +
@@ -335,22 +495,6 @@ var PROMPT = "あなたは私のN1単語トレーナーです。全部日本語�
 "5. 余裕があれば、N2文法（〜ざるを得ない／〜かねない／〜次第／〜どころか など）を使わせる質問も入れてください。\n" +
 "6. 最後に、私が詰まった語と文法だけをリストで出してください。\n\n" +
 "では1問目をお願いします。";
-function renderPrompt() {
-  $("#view-prompt").innerHTML = '<div class="stack"><div class="card">' +
-    '<span class="eyebrow">帰りの電車で</span><h2>使わされる 45 分</h2>' +
-    '<p class="hint">複製 → 貼進手機的 Claude 或 Gemini。規則已經寫死：<b>你答不出來時它不會直接給答案</b>，會先逼你想。</p>' +
-    '<textarea id="pbox" readonly></textarea>' +
-    '<button class="next" id="copy">コピーする</button></div></div>';
-  $("#pbox").value = PROMPT;
-  $("#copy").onclick = function () {
-    var b = $("#copy");
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(PROMPT).then(function () { b.textContent = "コピーしました"; },
-        function () { $("#pbox").select(); b.textContent = "選択しました — 長押しでコピー"; });
-    } else { $("#pbox").select(); b.textContent = "選択しました — 長押しでコピー"; }
-    setTimeout(function () { b.textContent = "コピーする"; }, 2200);
-  };
-}
 
 /* ---------------- nav ---------------- */
 var VIEWS = [
@@ -358,7 +502,7 @@ var VIEWS = [
   ["kanji", "漢", "漢字", renderKanji],
   ["grammar", "法", "文法", renderGrammar],
   ["read", "読", "読解", renderRead],
-  ["prompt", "話", "会話", renderPrompt]
+  ["prompt", "送", "共有", renderShare]
 ];
 function show(id) {
   VIEWS.forEach(function (v) {
@@ -385,6 +529,8 @@ $("#mark").textContent = "モリタン ドリル";
 var start;
 try { start = localStorage.getItem("n1app.tab"); } catch (e) {}
 show(VIEWS.some(function (v) { return v[0] === start; }) ? start : "drill");
+
+window.moritanReport = buildReport;  // デバッグ用：コンソールから今日のレポートを覗ける
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", function () {
