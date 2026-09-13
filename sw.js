@@ -1,11 +1,12 @@
 /* bump CACHE on every deploy so the app updates itself */
-const CACHE = "moritan-v3";
+const CACHE = "moritan-v4";
 const ASSETS = [
   "./", "index.html",
   "css/app.css",
   "js/app.js", "js/data/words.js", "js/data/grammar.js",
   "manifest.webmanifest",
-  "icons/icon-32.png", "icons/icon-180.png", "icons/icon-192.png", "icons/icon-512.png"
+  "icons/icon-32.png", "icons/icon-180.png", "icons/icon-192.png",
+  "icons/icon-512.png", "icons/icon-maskable-512.png"
 ];
 
 self.addEventListener("install", e => {

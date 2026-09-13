@@ -62,4 +62,10 @@ js/data/grammar.js  N2 文法
 sw.js               オフライン用
 ```
 
+## アイコン
+
+`icons/source-artwork.png` から `python3 tools/make-icons.py` で全サイズを書き出す。
+依存ライブラリは無し（PNG のデコード・リサイズ・エンコードを素で書いてある）。
+通常用は寄せ気味、`icon-maskable-512.png` は Android の円形マスクの安全域に収まるよう余白を足してある。
+
 学習計画そのものは別リポジトリ（`exam/n1`）で管理している。
