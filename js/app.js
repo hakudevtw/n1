@@ -13,10 +13,11 @@ var sampleNot = function (pool, n, not) {
   return out;
 };
 
+var TODAY = (function () { var d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); })();
+
 /* ---------------- store ---------------- */
 var KEY = "n1app.v1";
 var ST = { miss: {}, seen: {}, run: {}, lastMiss: {}, day: {}, best: 0, times: {}, plays: 0 };
-var TODAY = (function () { var d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); })();
 try { var raw = localStorage.getItem(KEY); if (raw) ST = Object.assign(ST, JSON.parse(raw)); } catch (e) {}
 ["miss","seen","run","lastMiss","day","times"].forEach(function (k) { if (!ST[k]) ST[k] = {}; });
 var save = function () { try { localStorage.setItem(KEY, JSON.stringify(ST)); } catch (e) {} };
@@ -41,7 +42,14 @@ function say(t, rate) {
 var SPK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a9 9 0 0 1 0 14"/></svg>';
 
 /* ---------------- data ---------------- */
-var DAYNUMS = Object.keys(window.DAYS).map(Number).sort(function (a, b) { return a - b; });
+var ALLDAYNUMS = Object.keys(window.DAYS).map(Number).sort(function (a, b) { return a - b; });
+/* 先に用意しておいた日ぶんが今日のデッキに雪崩れ込まないよう、日付で門を閉めておく。
+   date を過ぎた日だけが有効になる。 */
+var DAYNUMS = ALLDAYNUMS.filter(function (n) {
+  var d = window.DAYS[n].date;
+  return !d || d <= TODAY;
+});
+if (!DAYNUMS.length) DAYNUMS = [ALLDAYNUMS[0]];
 var TODAYNUM = DAYNUMS[DAYNUMS.length - 1];
 var DAY = window.DAYS[TODAYNUM];
 var TRAPS = DAY.traps || window.TRAPS || [];
@@ -129,8 +137,10 @@ function wordQ(w) {
   return { key: w.w, kind: "w", word: w, head: "この意味の語は", cn: w.c, opts: o3, ans: o3.indexOf(w.w), jp: true };
 }
 function trapQ(t) {
-  var w = WORDS.filter(function (x) { return x.w === t.o[t.a]; })[0] || { w: t.o[t.a], r: "", c: "", ex: "", note: "" };
-  return { key: t.o[t.a], kind: "w", word: w, head: "文に合う語を選ぶ", sent: t.s, opts: t.o, ans: t.a, jp: true, why: t.why };
+  // 活用した形を選ばせる問題があるので、記録用の見出し語は t.k で指定できる
+  var key = t.k || t.o[t.a];
+  var w = WORDS.filter(function (x) { return x.w === key; })[0] || { w: key, r: "", c: "", ex: "", note: "" };
+  return { key: key, kind: "w", word: w, head: "文に合う語を選ぶ", sent: t.s, opts: t.o, ans: t.a, jp: true, why: t.why };
 }
 function gramQ(g) {
   var mode = pick(["quiz", "quiz", "form", "mean"]);
@@ -739,7 +749,7 @@ VIEWS.forEach(function (v) {
 
 /* ---------------- boot ---------------- */
 $("#mark").textContent = "モリタン ドリル";
-var BUILD = "v10";
+var BUILD = "v11";
 (function () {
   var today = WORDS.filter(function (w) { return w.day === TODAYNUM; }).length;
   var carry = WORDS.length - today;
