@@ -112,6 +112,16 @@ h2{font-family:var(--mincho);font-weight:800;font-size:18px;margin:0;letter-spac
 .rd .y{color:var(--accent);font-weight:700;font-size:16px}
 .rd .c{color:var(--ink-2);font-size:14.5px}
 .ex{font-size:15px;line-height:1.85;color:var(--ink-2);margin:0}
+.exline{appearance:none;display:flex;align-items:flex-start;gap:10px;width:100%;text-align:left;
+  background:var(--surface);border:1px solid var(--line-2);border-radius:2px;padding:11px 13px;
+  cursor:pointer;color:var(--ink-2);font-family:var(--sans);font-size:15px;line-height:1.85}
+.exline .jp{flex:1}
+.exline .jp b{color:var(--ink);font-weight:700}
+.exline .ico{flex:none;color:var(--accent);margin-top:3px}
+.exline .ico svg{width:19px;height:19px;display:block}
+.exline:active{background:var(--accent-soft)}
+.exline:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.exc{margin:0;font-size:13.5px;line-height:1.7;color:var(--muted);padding:0 2px}
 .ex b{color:var(--ink);font-weight:700}
 .note{font-size:13.5px;line-height:1.8;background:var(--surface);
   border-left:3px solid var(--accent);padding:9px 12px;color:var(--ink-2);margin:0}

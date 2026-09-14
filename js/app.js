@@ -55,7 +55,7 @@ function unpack(n) {
   (d.words || []).forEach(function (w) { w.deep = true; w.day = n; out.push(w); });
   (d.lite || []).forEach(function (a) {
     // a[4] = 朝つけた印。完全な解説は無いが、出題頻度は deep と同じにする。
-    out.push({ w: a[0], r: a[1], c: a[2], ex: a[3] || "", note: "", deep: false, mark: !!a[4], day: n });
+    out.push({ w: a[0], r: a[1], c: a[2], ex: a[3] || "", exc: a[5] || "", note: "", deep: false, mark: !!a[4], day: n });
   });
   return out;
 }
@@ -203,6 +203,15 @@ function nextQ() {
   return wordQ(pick(WORDS));
 }
 
+/* 例文は答えたあとにだけ出る。タップで読み上げ、下に中文訳。
+   訳は「読めたつもり」を潰すためのもので、先に見せたら意味がない。 */
+function exBlock(o) {
+  if (!o.ex) return "";
+  var plain = o.ex.replace(/<[^>]+>/g, "").replace(/"/g, "");
+  return '<button class="exline" data-say="' + plain + '">' +
+    '<span class="jp">' + o.ex + '</span><span class="ico">' + SPK + '</span></button>' +
+    (o.exc ? '<p class="exc">' + o.exc + '</p>' : "");
+}
 function knetHTML(w) {
   if (!w.rel || !w.rel.length) return "";
   return w.rel.map(function (r) {
@@ -326,7 +335,7 @@ function answer(n) {
     rev = '<div class="rd"><span class="k" style="font-size:22px">' + g.f + '</span>' +
       '<span class="y">' + g.y + '</span><span class="c">' + g.cn + '</span></div>' +
       '<p class="conn">' + g.conn + '</p>' +
-      '<p class="ex">' + g.ex + '<br><span style="color:var(--muted);font-size:13.5px">' + g.exc + '</span></p>' +
+      exBlock(g) +
       (q.why ? '<p class="note">' + q.why + '</p>' : "") +
       (g.trap ? '<p class="note">' + g.trap + '</p>' : "");
   } else {
@@ -334,7 +343,7 @@ function answer(n) {
     rev = '<div class="rd"><span class="k">' + w.w + '</span><span class="y">' + w.r + '</span>' +
       '<span class="c">' + w.c + '</span></div>' +
       (ho.length ? '<p class="note">⚠️ 同音：<b>' + ho.join("・") + '</b> — 読みだけでは決まらない。文脈で選ぶ。</p>' : "") +
-      (w.ex ? '<p class="ex">' + w.ex + '</p>' : "") +
+      exBlock(w) +
       (q.why ? '<p class="note">' + q.why + '</p>' : "") +
       (w.note ? '<p class="note">' + w.note + '</p>' : "") +
       knetHTML(w);
@@ -349,8 +358,8 @@ function answer(n) {
     rev + '<button class="next" id="nx">つぎへ</button></div>';
 
   if (q.kind !== "g" && !q.audio) say(q.word.w);
-  Array.prototype.forEach.call($("#rev").querySelectorAll(".kw"), function (b) {
-    b.onclick = function () { say(b.dataset.say); };
+  Array.prototype.forEach.call($("#rev").querySelectorAll("[data-say]"), function (b) {
+    b.onclick = function (ev) { ev.preventDefault(); say(b.dataset.say, b.className === "exline" ? 0.95 : 0.85); };
   });
   var nx = $("#nx");
   nx.onclick = function () { step(); window.scrollTo(0, 0); };
@@ -405,9 +414,8 @@ function renderGrammar() {
       html += '<details class="gitem"><summary><span class="f">' + g.f + '</span>' +
         '<span class="m">' + g.cn + '</span></summary><div class="gbody">' +
         '<p class="conn">' + g.conn + '</p>' +
-        '<p class="ex">' + g.ex + '<br><span style="color:var(--muted);font-size:13.5px">' + g.exc + '</span></p>' +
+        exBlock(g) +
         '<p class="note">' + g.trap + '</p>' +
-        '<button class="next ghost" data-say="' + g.ex.replace(/<[^>]+>/g, "") + '">読み上げる</button>' +
         '</div></details>';
     });
   });
@@ -464,7 +472,7 @@ function renderRead() {
     '<p class="hint">まず<b>自分で音読せず黙読</b>して計る。目標各 <b>60 秒</b>、假名は心の中でも音にしない。' +
     'そのあと <b>読み上げ</b> を流すと、いま読んでいる文が光る ―― 自分の読みとずれていた所がそこで分かる。</p>' +
     '</div>' + PASSAGES.map(function (p, i) {
-      var b = ST.times[i];
+      var b = ST.times[TODAYNUM + "-" + i];
       return '<div class="card" data-card="' + i + '">' +
         '<div class="plate-top"><span class="eyebrow">' + p.t + '</span>' +
         '<span class="best">' + (b ? "最速 " + fmt(b) : "未計測") + '</span></div>' +
@@ -494,7 +502,8 @@ function toggleTimer() {
   if (tick) {
     clearInterval(tick); tick = null; btn.textContent = "スタート";
     var s = Math.floor((Date.now() - t0) / 1000);
-    if (!ST.times[activeP] || s < ST.times[activeP]) { ST.times[activeP] = s; save(); renderRead(); }
+    var k = TODAYNUM + "-" + activeP;
+    if (!ST.times[k] || s < ST.times[k]) { ST.times[k] = s; save(); renderRead(); }
     $("#clock").textContent = fmt(s);
     return;
   }
@@ -538,11 +547,19 @@ function weakList() {
 }
 function tiers() {
   var all = weakList();
-  var hot = all.filter(function (x) { return x.score >= 5; });
-  var warm = all.filter(function (x) { return x.score >= 2 && x.score < 5; });
-  var cool = all.filter(function (x) { return x.score < 2 && x.todayMiss > 0; });
+  /* 通算3回以上ミスした語は、直近で戻っていても必ず要注意に出す。
+     leeches.md に載せる基準がそれだから。 */
+  var hot = all.filter(function (x) { return x.score >= 5 || x.m >= 3; });
+  var warm = all.filter(function (x) { return hot.indexOf(x) < 0 && x.score >= 2; });
+  /* 「1回ミスしてすぐ2回続けて正解」はただのブレ。もう戻った語は出さない。 */
+  var cool = all.filter(function (x) {
+    return hot.indexOf(x) < 0 && warm.indexOf(x) < 0 && x.todayMiss > 0 && x.run < 2;
+  });
+  var settled = all.filter(function (x) {
+    return hot.indexOf(x) < 0 && warm.indexOf(x) < 0 && x.todayMiss > 0 && x.run >= 2;
+  });
   var back = all.filter(function (x) { return x.score < 2 && x.todayMiss === 0 && x.run >= 3; });
-  return { all: all, hot: hot, warm: warm, cool: cool, back: back };
+  return { all: all, hot: hot, warm: warm, cool: cool, settled: settled, back: back };
 }
 
 function line(x) {
@@ -581,18 +598,23 @@ function buildReport() {
     promo.slice(0, 20).forEach(function (x) { out.push(line(x)); });
     out.push("");
   }
-  sec("今日つまずいた（まだ回数は少ない）", t.cool);
+  sec("今日つまずいて、まだ戻っていない", t.cool);
+  if (t.settled.length) {
+    out.push("■ 今日1回ミスしたが、その場で戻った（" + t.settled.length + "）― 対応不要");
+    out.push(t.settled.slice(0, 30).map(function (x) { return x.label; }).join("・"));
+    out.push("");
+  }
   if (t.back.length) {
     out.push("■ 回復した（もう出題頻度は下げてある）");
     out.push(t.back.slice(0, 20).map(function (x) { return x.label; }).join("・"));
     out.push("");
   }
-  var times = Object.keys(ST.times);
+  var times = Object.keys(ST.times).filter(function (k) { return k.indexOf(TODAYNUM + "-") === 0; });
   if (times.length) {
-    out.push("■ 計時読解");
-    times.forEach(function (i) {
-      var p = PASSAGES[i];
-      if (p) out.push("- " + p.t + " 最速 " + fmt(ST.times[i]) + "（目標 " + fmt(p.sec) + "）");
+    out.push("■ 計時読解（" + DAY.label + "）");
+    times.forEach(function (k) {
+      var p = PASSAGES[+k.split("-")[1]];
+      if (p) out.push("- " + p.t + " 最速 " + fmt(ST.times[k]) + "（目標 " + fmt(p.sec) + "）");
     });
     out.push("");
   }
@@ -717,7 +739,7 @@ VIEWS.forEach(function (v) {
 
 /* ---------------- boot ---------------- */
 $("#mark").textContent = "モリタン ドリル";
-var BUILD = "v9";
+var BUILD = "v10";
 (function () {
   var today = WORDS.filter(function (w) { return w.day === TODAYNUM; }).length;
   var carry = WORDS.length - today;
