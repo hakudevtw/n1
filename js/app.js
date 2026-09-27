@@ -777,7 +777,7 @@ VIEWS.forEach(function (v) {
 
 /* ---------------- boot ---------------- */
 $("#mark").textContent = "モリタン ドリル";
-var BUILD = "v12";
+var BUILD = "v13";
 (function () {
   var today = WORDS.filter(function (w) { return w.day === TODAYNUM; }).length;
   var carry = WORDS.length - today;
