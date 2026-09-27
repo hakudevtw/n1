@@ -17,9 +17,9 @@ var TODAY = (function () { var d = new Date(); return d.getFullYear() + "-" + St
 
 /* ---------------- store ---------------- */
 var KEY = "n1app.v1";
-var ST = { miss: {}, seen: {}, run: {}, lastMiss: {}, day: {}, best: 0, times: {}, plays: 0 };
+var ST = { miss: {}, seen: {}, run: {}, lastMiss: {}, lastOK: {}, day: {}, best: 0, times: {}, plays: 0 };
 try { var raw = localStorage.getItem(KEY); if (raw) ST = Object.assign(ST, JSON.parse(raw)); } catch (e) {}
-["miss","seen","run","lastMiss","day","times"].forEach(function (k) { if (!ST[k]) ST[k] = {}; });
+["miss","seen","run","lastMiss","lastOK","day","times"].forEach(function (k) { if (!ST[k]) ST[k] = {}; });
 var save = function () { try { localStorage.setItem(KEY, JSON.stringify(ST)); } catch (e) {} };
 
 /* ---------------- speech ---------------- */
@@ -77,6 +77,32 @@ function carried(w) {
   if (w.day === TODAYNUM) return true;
   return (ST.run[w.w] || 0) < 2 || (ST.miss[w.w] || 0) > 0;
 }
+
+/* 忘却。卒業した語も、何日も触らなければ落ちている。
+   最後に正解した日から OLD 日たった語を run=1 に戻す ＝ もう一度だけ正解すればまた卒業する。
+   未クリアの語が OPEN 件を超えているあいだは呼び戻さない。
+   今日ぶんがまだ終わっていないのに復習を積むと、終わりが見えなくなるから。 */
+var DECAY_OLD = 7, DECAY_OPEN = 60;
+(function wake() {
+  if (ST.wake === TODAY) return;                       // 一日一回だけ
+  var open = 0;
+  ALLWORDS.forEach(function (w) { if ((ST.run[w.w] || 0) < 2) open++; });
+  var room = DECAY_OPEN - open;
+  if (room > 0) {
+    var cand = ALLWORDS.filter(function (w) {
+      if (w.day === TODAYNUM || (ST.run[w.w] || 0) < 2) return false;
+      var last = ST.lastOK[w.w];
+      if (!last) return true;                          // 記録が無い＝この機能より前に覚えた語
+      return (Date.parse(TODAY) - Date.parse(last)) / 86400000 >= DECAY_OLD;
+    });
+    /* よく間違えた語から先に呼び戻す */
+    cand.sort(function (a, b) { return (ST.miss[b.w] || 0) - (ST.miss[a.w] || 0); });
+    cand.slice(0, room).forEach(function (w) { ST.run[w.w] = 1; });
+  }
+  ST.wake = TODAY;
+  save();
+})();
+
 var WORDS = ALLWORDS.filter(carried);
 var MEANINGS = WORDS.map(function (w) { return w.c; });
 var READINGS = WORDS.map(function (w) { return w.r; });
@@ -165,7 +191,8 @@ function sources() {
   var out = [];
   if (deck === "words" || deck === "mixed") {
     WORDS.forEach(function (w) { out.push({ t: "w", d: w, k: w.w, base: (w.deep || w.mark) ? 3 : 1 }); });
-    TRAPS.forEach(function (t) { out.push({ t: "t", d: t, k: t.o[t.a], base: 3 }); });
+    /* 記録側（trapQ）が t.k を使うので、デッキ側も揃える。ずれると永久にクリアできない鍵ができる。 */
+    TRAPS.forEach(function (t) { out.push({ t: "t", d: t, k: t.k || t.o[t.a], base: 3 }); });
   }
   if (deck === "grammar" || deck === "mixed") {
     GRAM.forEach(function (g) { out.push({ t: "g", d: g, k: g.f, base: 3 }); });
@@ -310,6 +337,7 @@ function answer(n) {
   if (good) {
     d.ok++;
     ST.run[q.key] = (ST.run[q.key] || 0) + 1;
+    ST.lastOK[q.key] = TODAY;
     if (ST.run[q.key] === 2) justCleared = true;
     /* 1回目に正解したら、その語を数問先に差し込む。
        次の周回まで待たせると、いつまでもクリアにならず進捗が動かない。
@@ -749,7 +777,7 @@ VIEWS.forEach(function (v) {
 
 /* ---------------- boot ---------------- */
 $("#mark").textContent = "モリタン ドリル";
-var BUILD = "v11";
+var BUILD = "v12";
 (function () {
   var today = WORDS.filter(function (w) { return w.day === TODAYNUM; }).length;
   var carry = WORDS.length - today;

@@ -1,8 +1,8 @@
 /* データは毎日入れ替わるので、オンラインなら必ず新しいものを取りに行く。
    キャッシュは「電車がトンネルに入ったとき」のための保険であって、
    既定の配信元ではない。CACHE はデプロイのたびに上げる。 */
-const CACHE = "moritan-v11";
-const BUILD = "v11";
+const CACHE = "moritan-v12";
+const BUILD = "v12";
 
 const ASSETS = [
   "./", "index.html",
