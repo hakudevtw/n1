@@ -150,8 +150,13 @@ var GMEANS = GRAM.map(function (g) { return g.cn; });
 function sameSpelling(w) {
   return w.c.split(/[、（(]/)[0].trim() === w.w;
 }
+/* カタカナ語とかな副詞は「読み」が語そのもの。読みを選ばせると問題文に答えが出る。
+   この型だけ外す ―― 音から意味を引く出題は残るので、訓練としては困らない。 */
+function noReading(w) { return w.r === w.w; }
 function wordQ(w) {
-  var bag = sameSpelling(w) ? ["audio", "audio", "read"] : ["audio", "audio", "read", "mean"];
+  var bag = ["audio", "audio"];
+  if (!noReading(w)) bag.push("read");
+  if (!sameSpelling(w)) bag.push("mean");
   if (w.ex && w.ex.indexOf("<b>") >= 0) bag = bag.concat(["cloze", "cloze", "cloze"]);
   var mode = pick(bag);
   if (mode === "cloze") {
@@ -814,7 +819,7 @@ VIEWS.forEach(function (v) {
 
 /* ---------------- boot ---------------- */
 $("#mark").textContent = "モリタン ドリル";
-var BUILD = "v15";
+var BUILD = "v16";
 (function () {
   var today = WORDS.filter(function (w) { return w.day === TODAYNUM; }).length;
   var carry = WORDS.length - today;
