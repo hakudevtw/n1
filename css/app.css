@@ -100,12 +100,17 @@ h2{font-family:var(--mincho);font-weight:800;font-size:18px;margin:0;letter-spac
 .choice:disabled{cursor:default}
 .choice.is-ok{background:var(--ok-soft);border-color:var(--ok);color:var(--ok)}
 .choice.is-no{background:var(--no-soft);border-color:var(--no);color:var(--no)}
+.choice.is-idk{background:transparent;border-color:var(--accent);color:var(--accent)}
+button.idk{appearance:none;width:100%;min-height:44px;margin-top:10px;background:transparent;
+  border:1px dashed var(--line);border-radius:12px;color:var(--muted);font:inherit;font-size:13px;cursor:pointer}
+button.idk:hover{color:var(--ink);border-color:var(--muted)}
+button.idk:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .choice:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
 /* ---------- reveal ---------- */
 .reveal{display:flex;flex-direction:column;gap:11px;border-top:1px solid var(--line-2);padding-top:13px}
 .verdict{display:flex;align-items:baseline;gap:10px;font-size:12.5px;font-weight:700;letter-spacing:.1em}
-.verdict.ok{color:var(--ok)} .verdict.no{color:var(--no)}
+.verdict.ok{color:var(--ok)} .verdict.no{color:var(--no)} .verdict.idk{color:var(--accent)}
 .verdict .streak{margin-left:auto;color:var(--muted);letter-spacing:.06em;font-variant-numeric:tabular-nums}
 .rd{display:flex;flex-wrap:wrap;align-items:baseline;gap:9px}
 .rd .k{font-family:var(--mincho);font-weight:800;font-size:26px;letter-spacing:.05em}

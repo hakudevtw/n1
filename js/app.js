@@ -17,9 +17,9 @@ var TODAY = (function () { var d = new Date(); return d.getFullYear() + "-" + St
 
 /* ---------------- store ---------------- */
 var KEY = "n1app.v1";
-var ST = { miss: {}, seen: {}, run: {}, lastMiss: {}, lastOK: {}, day: {}, best: 0, times: {}, plays: 0 };
+var ST = { miss: {}, seen: {}, run: {}, skip: {}, lastMiss: {}, lastOK: {}, day: {}, best: 0, times: {}, plays: 0 };
 try { var raw = localStorage.getItem(KEY); if (raw) ST = Object.assign(ST, JSON.parse(raw)); } catch (e) {}
-["miss","seen","run","lastMiss","lastOK","day","times"].forEach(function (k) { if (!ST[k]) ST[k] = {}; });
+["miss","seen","run","skip","lastMiss","lastOK","day","times"].forEach(function (k) { if (!ST[k]) ST[k] = {}; });
 var save = function () { try { localStorage.setItem(KEY, JSON.stringify(ST)); } catch (e) {} };
 
 /* ---------------- speech ---------------- */
@@ -216,7 +216,7 @@ function refill() {
   var src = sources(), bag = [], done = [];
   src.forEach(function (x) {
     if ((ST.run[x.k] || 0) >= 2) { done.push(x); return; }
-    var m = ST.miss[x.k] || 0, sm = sess.miss[x.k] || 0;
+    var m = (ST.miss[x.k] || 0) + (ST.skip[x.k] || 0), sm = sess.miss[x.k] || 0;
     var n = (x.base === 3 ? 2 : 1) + Math.min(m, 3) + sm * 2;
     for (var i = 0; i < n; i++) bag.push(x);
   });
@@ -319,16 +319,21 @@ function step() {
     '<div class="choices" id="ch">' + q.opts.map(function (o, n) {
       return '<button class="choice' + (q.jp ? " jp" : "") + '" data-n="' + n + '">' +
         '<span class="idx">' + (n + 1) + '</span><span>' + o + '</span></button>';
-    }).join("") + '</div><div id="rev"></div></div>';
+    }).join("") + '</div>' +
+    /* 当てずっぽうで正解してしまうと、覚えたことになってしまう。
+       「実は分かっていない」と自分で言えるようにしておく。 */
+    '<button class="idk" id="idk">わからない — 答えを見る</button>' +
+    '<div id="rev"></div></div>';
 
   if (q.audio) { say(q.audio); $("#spk").onclick = function () { say(q.audio); }; }
   Array.prototype.forEach.call($("#ch").children, function (b) {
     b.onclick = function () { answer(+b.dataset.n); };
   });
+  $("#idk").onclick = function () { answer(-1, true); };
 }
 
-function answer(n) {
-  var q = cur, good = n === q.ans;
+function answer(n, skipped) {
+  var q = cur, good = !skipped && n === q.ans;
   sess.seen++;
   ST.seen[q.key] = (ST.seen[q.key] || 0) + 1;
   var d = ST.day[TODAY] || (ST.day[TODAY] = { seen: 0, ok: 0, miss: {} });
@@ -355,7 +360,10 @@ function answer(n) {
     ST.lastMiss[q.key] = TODAY;
     d.miss[q.key] = (d.miss[q.key] || 0) + 1;
     sess.miss[q.key] = (sess.miss[q.key] || 0) + 1;
-    ST.miss[q.key] = (ST.miss[q.key] || 0) + 1;
+    /* 自己申告は「間違えた」とは別に数える。レポートで区別したいのは
+       間違えた語ではなく、当てられるけど分かっていない語のほうだから。 */
+    if (skipped) { ST.skip[q.key] = (ST.skip[q.key] || 0) + 1; d.skip = (d.skip || 0) + 1; }
+    else ST.miss[q.key] = (ST.miss[q.key] || 0) + 1;
     queue.unshift({ t: q.kind === "g" ? "g" : "w", d: q.kind === "g" ? q.gram : q.word, k: q.key });
   }
   save();
@@ -363,9 +371,10 @@ function answer(n) {
 
   Array.prototype.forEach.call($("#ch").children, function (b, i) {
     b.disabled = true;
-    if (i === q.ans) b.className += " is-ok";
+    if (i === q.ans) b.className += skipped ? " is-idk" : " is-ok";
     else if (i === n) b.className += " is-no";
   });
+  var idk = $("#idk"); if (idk) idk.remove();
 
   var rev = "";
   if (q.kind === "g") {
@@ -388,8 +397,8 @@ function answer(n) {
   }
 
   $("#rev").innerHTML = '<div class="reveal">' +
-    '<div class="verdict ' + (good ? "ok" : "no") + '"><span>' +
-    (good ? (justCleared ? "正解 — クリア" : "正解") : "不正解") + '</span>' +
+    '<div class="verdict ' + (skipped ? "idk" : good ? "ok" : "no") + '"><span>' +
+    (skipped ? "わからないと答えた — 通過しない" : good ? (justCleared ? "正解 — クリア" : "正解") : "不正解") + '</span>' +
     '<span class="streak" style="margin-left:12px;color:var(--accent)">残り ' + (pg.total - pg.done) + '</span>' +
     '<span class="streak">連続 ' + sess.streak + ' · 最高 ' + Math.max(sess.best, ST.best || 0) +
     (sess.seen ? ' · 正解率 ' + Math.round(sess.ok / sess.seen * 100) + '%' : "") + '</span></div>' +
@@ -556,9 +565,11 @@ function toggleTimer() {
    score = ミス回数×2 + ミス率×4 − 直近の連続正解×1.2
    絶対量・比率・回復ぶんの三つを同時に見る。回復した語は自動的に落ちる。 */
 function weakness(key) {
-  var m = ST.miss[key] || 0;
+  var m = (ST.miss[key] || 0) + (ST.skip[key] || 0);
   if (!m) return 0;
-  var s = Math.max(ST.seen[key] || 0, 1), run = ST.run[key] || 0;
+  /* 出題が1〜2回しかない語はミス率がすぐ100%になり、要注意を埋めてしまう。
+     分母に下限を置いて、回数が溜まるまで比率を効かせすぎない。 */
+  var s = Math.max(ST.seen[key] || 0, 3), run = ST.run[key] || 0;
   return m * 2 + (m / s) * 4 - Math.min(run, 4) * 1.2;
 }
 function lookup(key) {
@@ -571,13 +582,15 @@ function lookup(key) {
 function weakList() {
   var keys = {};
   Object.keys(ST.miss).forEach(function (k) { if (ST.miss[k]) keys[k] = 1; });
+  Object.keys(ST.skip).forEach(function (k) { if (ST.skip[k]) keys[k] = 1; });
   var today = (ST.day[TODAY] && ST.day[TODAY].miss) || {};
   Object.keys(today).forEach(function (k) { keys[k] = 1; });
   return Object.keys(keys).map(function (k) {
     var info = lookup(k);
     return {
       key: k, kind: info.kind, label: info.label, sub: info.sub, cn: info.cn, deep: info.deep !== false,
-      m: ST.miss[k] || 0, s: ST.seen[k] || 0, run: ST.run[k] || 0,
+      m: ST.miss[k] || 0, sk: ST.skip[k] || 0, tot: (ST.miss[k] || 0) + (ST.skip[k] || 0),
+      s: ST.seen[k] || 0, run: ST.run[k] || 0,
       todayMiss: today[k] || 0, last: ST.lastMiss[k] || "",
       score: weakness(k)
     };
@@ -587,7 +600,7 @@ function tiers() {
   var all = weakList();
   /* 通算3回以上ミスした語は、直近で戻っていても必ず要注意に出す。
      leeches.md に載せる基準がそれだから。 */
-  var hot = all.filter(function (x) { return x.score >= 5 || x.m >= 3; });
+  var hot = all.filter(function (x) { return x.score >= 5 || x.tot >= 3; });
   var warm = all.filter(function (x) { return hot.indexOf(x) < 0 && x.score >= 2; });
   /* 「1回ミスしてすぐ2回続けて正解」はただのブレ。もう戻った語は出さない。 */
   var cool = all.filter(function (x) {
@@ -602,7 +615,9 @@ function tiers() {
 
 function line(x) {
   var s = "- " + x.label + (x.sub ? "（" + x.sub + "）" : "") + (x.cn ? " " + x.cn : "");
-  s += " … " + x.s + "回中" + x.m + "回ミス";
+  s += " … " + x.s + "回中";
+  s += x.m ? x.m + "回ミス" : "";
+  s += (x.m && x.sk ? "・" : "") + (x.sk ? x.sk + "回わからない" : "");
   if (x.run) s += "／直近" + x.run + "連続正解";
   return s;
 }
@@ -611,7 +626,8 @@ function buildReport() {
   var rate = d.seen ? Math.round(d.ok / d.seen * 100) : 0;
   var out = [];
   out.push("【モリタン ドリル " + TODAY + "】" + DAY.label + " " + DAY.range);
-  out.push("今日 " + d.seen + "問 / 正解 " + d.ok + "（" + rate + "%）｜累計ミス語 " + t.all.length + " 件");
+  out.push("今日 " + d.seen + "問 / 正解 " + d.ok + "（" + rate + "%）" +
+    (d.skip ? "・わからない " + d.skip + "回" : "") + "｜累計ミス語 " + t.all.length + " 件");
   out.push("");
 
   function sec(title, arr) {
@@ -619,6 +635,15 @@ function buildReport() {
     out.push("■ " + title + "（" + arr.length + "）");
     arr.slice(0, 25).forEach(function (x) { out.push(line(x)); });
     if (arr.length > 25) out.push("…ほか " + (arr.length - 25) + " 件");
+    out.push("");
+  }
+  var idk = t.all.filter(function (x) { return x.sk > 0 && x.run < 2; })
+    .sort(function (a, b) { return b.sk - a.sk; });
+  if (idk.length) {
+    out.push("■ 自分で「わからない」と答えた（" + idk.length + "）");
+    out.push("  ※当てれば正解できたかもしれないが、実際には引き出せなかった語。いちばん確かな信号。");
+    idk.slice(0, 30).forEach(function (x) { out.push(line(x)); });
+    if (idk.length > 30) out.push("…ほか " + (idk.length - 30) + " 件");
     out.push("");
   }
   var hw = t.hot.filter(function (x) { return x.kind === "w"; });
@@ -777,7 +802,7 @@ VIEWS.forEach(function (v) {
 
 /* ---------------- boot ---------------- */
 $("#mark").textContent = "モリタン ドリル";
-var BUILD = "v13";
+var BUILD = "v14";
 (function () {
   var today = WORDS.filter(function (w) { return w.day === TODAYNUM; }).length;
   var carry = WORDS.length - today;
