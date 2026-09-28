@@ -52,8 +52,12 @@ var DAYNUMS = ALLDAYNUMS.filter(function (n) {
 if (!DAYNUMS.length) DAYNUMS = [ALLDAYNUMS[0]];
 var TODAYNUM = DAYNUMS[DAYNUMS.length - 1];
 var DAY = window.DAYS[TODAYNUM];
-var TRAPS = DAY.traps || window.TRAPS || [];
-var PASSAGES = DAY.read || window.READ_PASSAGES || [];
+var ALLTRAPS = [], PASSAGES = [];
+DAYNUMS.forEach(function (n) {
+  (window.DAYS[n].traps || []).forEach(function (t) { t.day = n; ALLTRAPS.push(t); });
+  (window.DAYS[n].read || []).forEach(function (r, i) { PASSAGES.push({ day: n, i: i, t: r.t, sec: r.sec, html: r.html }); });
+});
+PASSAGES.sort(function (a, b) { return b.day - a.day; });   // 今日ぶんを先頭に
 var GRAM = window.GRAMMAR;
 /* 深さ二層。deep = 圈起來的＋陷阱組（例文・辨析・漢字ネットワークつき）
    lite = 残り（語・読み・意味だけ）。出題頻度は deep の 1/3 から始まり、
@@ -104,6 +108,13 @@ var DECAY_OLD = 7, DECAY_OPEN = 60;
 })();
 
 var WORDS = ALLWORDS.filter(carried);
+/* 陷阱句はその語の付属品。語が卒業したら一緒に抜け、残っているうちは付いてくる。
+   その日ぶんだけ出していたので、翌日には対策で入れた問題が全部消えていた。 */
+var INDECK = {};
+WORDS.forEach(function (w) { INDECK[w.w] = 1; });
+var TRAPS = ALLTRAPS.filter(function (t) {
+  return t.day === TODAYNUM || INDECK[t.k || t.o[t.a]];
+});
 var MEANINGS = WORDS.map(function (w) { return w.c; });
 var READINGS = WORDS.map(function (w) { return w.r; });
 var SURFACES = WORDS.map(function (w) { return w.w; });
@@ -519,9 +530,9 @@ function renderRead() {
     '<p class="hint">まず<b>自分で音読せず黙読</b>して計る。目標各 <b>60 秒</b>、假名は心の中でも音にしない。' +
     'そのあと <b>読み上げ</b> を流すと、いま読んでいる文が光る ―― 自分の読みとずれていた所がそこで分かる。</p>' +
     '</div>' + PASSAGES.map(function (p, i) {
-      var b = ST.times[TODAYNUM + "-" + i];
+      var b = ST.times[p.day + "-" + p.i];
       return '<div class="card" data-card="' + i + '">' +
-        '<div class="plate-top"><span class="eyebrow">' + p.t + '</span>' +
+        '<div class="plate-top"><span class="eyebrow">' + p.day + '日目 · ' + p.t + '</span>' +
         '<span class="best">' + (b ? "最速 " + fmt(b) : "未計測") + '</span></div>' +
         '<p class="passage">' + sentences(p.html).map(function (x) {
           return '<span class="sx">' + x + '</span>';
@@ -549,7 +560,8 @@ function toggleTimer() {
   if (tick) {
     clearInterval(tick); tick = null; btn.textContent = "スタート";
     var s = Math.floor((Date.now() - t0) / 1000);
-    var k = TODAYNUM + "-" + activeP;
+    var ap = PASSAGES[activeP] || PASSAGES[0];
+    var k = ap ? ap.day + "-" + ap.i : TODAYNUM + "-0";
     if (!ST.times[k] || s < ST.times[k]) { ST.times[k] = s; save(); renderRead(); }
     $("#clock").textContent = fmt(s);
     return;
@@ -672,12 +684,12 @@ function buildReport() {
     out.push(t.back.slice(0, 20).map(function (x) { return x.label; }).join("・"));
     out.push("");
   }
-  var times = Object.keys(ST.times).filter(function (k) { return k.indexOf(TODAYNUM + "-") === 0; });
-  if (times.length) {
-    out.push("■ 計時読解（" + DAY.label + "）");
-    times.forEach(function (k) {
-      var p = PASSAGES[+k.split("-")[1]];
-      if (p) out.push("- " + p.t + " 最速 " + fmt(ST.times[k]) + "（目標 " + fmt(p.sec) + "）");
+  var timed = PASSAGES.filter(function (p) { return ST.times[p.day + "-" + p.i]; });
+  if (timed.length) {
+    out.push("■ 計時読解");
+    timed.forEach(function (p) {
+      out.push("- " + p.day + "日目 " + p.t + " 最速 " + fmt(ST.times[p.day + "-" + p.i]) +
+        "（目標 " + fmt(p.sec) + "）");
     });
     out.push("");
   }
@@ -802,7 +814,7 @@ VIEWS.forEach(function (v) {
 
 /* ---------------- boot ---------------- */
 $("#mark").textContent = "モリタン ドリル";
-var BUILD = "v14";
+var BUILD = "v15";
 (function () {
   var today = WORDS.filter(function (w) { return w.day === TODAYNUM; }).length;
   var carry = WORDS.length - today;
