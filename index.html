@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>モリタン ドリル</title>
-<meta name="description" content="N1 単語・N2 文法の取り出し練習。通勤中に片手で。">
+<meta name="description" content="N1 単語・N2 文法の取り出し練習（間隔複習）。通勤中に片手で。">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#E9EBE6" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#11161B" media="(prefers-color-scheme: dark)">
@@ -22,23 +22,28 @@
   <header>
     <div class="plate-top">
       <span class="mark" id="mark">モリタン ドリル</span>
-      <span class="daytag" id="daytag">1〜100 / 4045</span>
+      <span class="daytag" id="daytag">モリタン</span>
     </div>
     <div class="rail"><i id="rail"></i></div>
   </header>
 
+  <div id="alert" class="alertbar" role="alert" hidden></div>
   <main id="view-drill"></main>
-  <main id="view-kanji" hidden></main>
-  <main id="view-grammar" hidden></main>
-  <main id="view-read" hidden></main>
-  <main id="view-prompt" hidden></main>
+  <main id="view-history" hidden></main>
+  <main id="view-materials" hidden></main>
+  <main id="view-settings" hidden></main>
 
   <footer id="foot">読み込み中…</footer>
 </div>
+<div id="sheet" class="sheet" hidden></div>
 <nav></nav>
 
 <script src="js/data/words.js"></script>
 <script src="js/data/grammar.js"></script>
+<script src="js/srs.js"></script>
+<script src="js/audit.js"></script>
+<script src="js/sync.js"></script>
+<script src="js/history.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>
